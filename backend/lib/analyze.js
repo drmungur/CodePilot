@@ -341,9 +341,12 @@ async function callWatsonx(prompt) {
 
 async function callGroq(prompt) {
   const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey?.trim()) throw new Error("GROQ_API_KEY is not set");
+  if (!apiKey?.trim()) {
+    throw new Error("GROQ_API_KEY is not set");
+  }
 
   let res;
+
   try {
     res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -352,7 +355,7 @@ async function callGroq(prompt) {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+        model: process.env.GROQ_MODEL || "openai/gpt-oss-20b",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.2,
         max_tokens: 4096,
@@ -362,19 +365,31 @@ async function callGroq(prompt) {
     throw new Error("Groq service is unreachable");
   }
 
+  if (res.status === 429) {
+    throw new Error(
+      "Groq rate limit reached. CodePilot stopped the request to prevent additional usage. Please try again later."
+    );
+  }
+
+  if (res.status === 401 || res.status === 403) {
+    throw new Error(
+      `Groq authentication failed (${res.status}). Check the GROQ_API_KEY configuration.`
+    );
+  }
+
   if (!res.ok) {
     throw new Error(`Groq API request failed (${res.status})`);
   }
 
   const data = await res.json();
   const message = data?.choices?.[0]?.message;
+  console.log("[groq-debug]", JSON.stringify(data, null, 2));
 
-  // GPT-OSS models can expose reasoning separately from the final answer.
-  // CodePilot needs the final content, not the hidden reasoning.
   const text =
     typeof message?.content === "string" && message.content.trim()
       ? message.content
-      : typeof message?.reasoning_content === "string" && message.reasoning_content.trim()
+      : typeof message?.reasoning_content === "string" &&
+          message.reasoning_content.trim()
         ? message.reasoning_content
         : typeof data?.choices?.[0]?.text === "string"
           ? data.choices[0].text
@@ -1462,15 +1477,15 @@ export async function analyzeRepo(repoData) {
     console.log(`[analyze] Using watsonx provider (model: ${process.env.WATSONX_MODEL || "ibm/granite-3-8b-instruct"})`);
     const prompt = buildAnalysisPrompt(repoData);
     raw = await callWatsonx(prompt);
-  } else if (provider === "groq") {
-    console.log(`[analyze] Using Groq provider (model: ${process.env.GROQ_MODEL || "llama-3.3-70b-versatile"})`);
-    try {
-      raw = await callGroq(buildAnalysisPrompt(repoData));
-    } catch (err) {
-      console.warn(`[analyze] ${err.message}; falling back to mock provider.`);
-      provider = "mock";
-      raw = callMock(repoData);
-    }
+  }
+  else if (provider === "groq") {
+    console.log(
+      `[analyze] Using Groq provider (model: ${
+        process.env.GROQ_MODEL || "openai/gpt-oss-20b"
+      })`
+    );
+
+    raw = await callGroq(buildAnalysisPrompt(repoData));
   } else {
     console.log(`[analyze] Using mock provider (AI_PROVIDER=${process.env.AI_PROVIDER || "mock"})`);
     raw = callMock(repoData);
@@ -1584,10 +1599,7 @@ Answer concisely and accurately based on the actual code above. If the answer is
     try {
       raw = provider === "groq" ? await callGroq(prompt) : await callWatsonx(prompt);
     } catch (err) {
-      if (provider !== "groq") throw err;
-      console.warn(`[ask] ${err.message}; falling back to mock provider.`);
-      provider = "mock";
-      isMock = true;
+      throw err;
     }
     if (provider === "groq" || provider === "watsonx") {
     return {
