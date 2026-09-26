@@ -1,0 +1,21 @@
+node_modules/
+.env
+__pycache__/
+*.pyc
+.DS_Store
+venv/
+
+
+# Local secrets
+backend/.env
+
+# Local frontend backups / archives
+*-backup/
+*-extracted/
+*-broken/
+*.zip
+
+# Additional local frontend snapshots
+frontend-v*/
+frontend-final-*/
+frontend-backup/
