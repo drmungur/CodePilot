@@ -1,3 +1,4 @@
+import { callAI } from "./aiRouter.js";
 /**
  * AI analysis service.
  *
@@ -60,16 +61,27 @@ function validateWatsonxConfig() {
 
 function resolveProvider() {
   const requested = (process.env.AI_PROVIDER || "mock").toLowerCase();
+
   if (requested === "groq") {
-    if (!process.env.GROQ_API_KEY?.trim()) {
-      console.warn("[analyze] AI_PROVIDER=groq requested but GROQ_API_KEY is not set. Falling back to mock provider.");
-      return "mock";
+    const hasGroq = Boolean(process.env.GROQ_API_KEY?.trim());
+    const hasOpenRouter = Boolean(process.env.OPENROUTER_API_KEY?.trim());
+    const hasGemini = Boolean(process.env.GEMINI_API_KEY?.trim());
+
+    if (hasGroq || hasOpenRouter || hasGemini) {
+      return "router";
     }
-    return "groq";
+
+    console.warn(
+      "[analyze] No AI router providers are configured. Falling back to mock provider."
+    );
+
+    return "mock";
   }
+
   if (requested !== "watsonx") return "mock";
 
   const check = validateWatsonxConfig();
+
   if (!check.valid) {
     console.warn(
       `[analyze] AI_PROVIDER=watsonx requested but ${check.reason}. ` +
@@ -77,6 +89,7 @@ function resolveProvider() {
     );
     return "mock";
   }
+
   return "watsonx";
 }
 
@@ -367,7 +380,7 @@ async function callGroq(prompt) {
         model: process.env.GROQ_MODEL || "openai/gpt-oss-20b",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.2,
-        max_tokens: 4096,
+        max_tokens: 8192,
       }),
     });
   } catch {
@@ -1480,23 +1493,34 @@ function normalizeAnalysis(data, provider, repoData) {
  */
 export async function analyzeRepo(repoData) {
   let provider = resolveProvider();
-
   let raw;
+
   if (provider === "watsonx") {
-    console.log(`[analyze] Using watsonx provider (model: ${process.env.WATSONX_MODEL || "ibm/granite-3-8b-instruct"})`);
-    const prompt = buildAnalysisPrompt(repoData);
-    raw = await callWatsonx(prompt);
-  }
-  else if (provider === "groq") {
     console.log(
-      `[analyze] Using Groq provider (model: ${
-        process.env.GROQ_MODEL || "openai/gpt-oss-20b"
+      `[analyze] Using watsonx provider (model: ${
+        process.env.WATSONX_MODEL || "ibm/granite-3-8b-instruct"
       })`
     );
 
-    raw = await callGroq(buildAnalysisPrompt(repoData));
+    raw = await callWatsonx(buildAnalysisPrompt(repoData));
+  } else if (provider === "router") {
+    console.log("[analyze] Using multi-provider AI router");
+
+    const result = await callAI(buildAnalysisPrompt(repoData));
+
+    raw = result.text;
+    provider = result.provider;
+
+    console.log(
+      `[analyze] AI provider selected: ${result.provider} (${result.model})`
+    );
   } else {
-    console.log(`[analyze] Using mock provider (AI_PROVIDER=${process.env.AI_PROVIDER || "mock"})`);
+    console.log(
+      `[analyze] Using mock provider (AI_PROVIDER=${
+        process.env.AI_PROVIDER || "mock"
+      })`
+    );
+
     raw = callMock(repoData);
   }
 
@@ -1577,27 +1601,40 @@ export async function askQuestion(repoContext, question, contextOverride) {
     ? "Files were prioritised from the associated mission context, supplemented by keyword relevance ranking."
     : "Files were selected by keyword relevance ranking against the question text.";
 
-  if (provider === "watsonx" || provider === "groq") {
+  if (
+    provider === "watsonx" ||
+    provider === "groq" ||
+    provider === "router"
+  ) {
     // Build a prompt using the already-selected context files
     const { owner, repo } = repoContext;
+
     const fileText = contextFiles
-      .map(f => `--- ${f.path}${f.category ? ` [${f.category}]` : ""} ---\n${f.snippet}`)
+      .map(
+        f =>
+          `--- ${f.path}${f.category ? ` [${f.category}]` : ""} ---\n${f.snippet}`
+      )
       .join("\n\n");
 
     // Include repo overview context
     const meta = repoContext.metadata;
+
     const overviewContext = [
       meta?.description && `Repository: ${owner}/${repo} — ${meta.description}`,
       meta?.language && `Primary language: ${meta.language}`,
       meta?.topics?.length && `Topics: ${meta.topics.join(", ")}`,
-    ].filter(Boolean).join("\n");
+    ]
+      .filter(Boolean)
+      .join("\n");
 
     const prompt = `You are CodePilot, an expert software engineer. The developer is asking about the repository ${owner}/${repo}.
 
 REPOSITORY OVERVIEW:
+
 ${overviewContext}
 
 RELEVANT REPOSITORY FILES (selected based on your question):
+
 ${fileText}
 
 DEVELOPER QUESTION: ${question}
@@ -1605,20 +1642,34 @@ DEVELOPER QUESTION: ${question}
 Answer concisely and accurately based on the actual code above. If the answer is not directly visible in the provided files, say so honestly rather than guessing. Keep the answer under 400 words. Format code references as \`filename\` or \`function()\`.`;
 
     let raw;
+    let responseProvider = provider;
+
     try {
-      raw = provider === "groq" ? await callGroq(prompt) : await callWatsonx(prompt);
+      if (provider === "router") {
+        const result = await callAI(prompt);
+
+        raw = result.text;
+        responseProvider = result.provider;
+
+        console.log(
+          `[ask] AI provider selected: ${result.provider} (${result.model})`
+        );
+      } else if (provider === "groq") {
+        raw = await callGroq(prompt);
+      } else {
+        raw = await callWatsonx(prompt);
+      }
     } catch (err) {
       throw err;
     }
-    if (provider === "groq" || provider === "watsonx") {
+
     return {
       answer: raw.trim(),
       relevantFiles,
       selectionReason,
-      provider,
-      isMock,
+      provider: responseProvider,
+      isMock: false,
     };
-    }
   }
 
   // Mock provider — produce a repository-grounded but clearly labelled response
