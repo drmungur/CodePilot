@@ -98,9 +98,18 @@ function buildAnalysisPrompt(repoData) {
     treeByCategory[f.category].push(f.path);
   }
 
+  const repoIsLarge = (tree || []).length > 500;
+  const repoIsHuge = (tree || []).length > 1500;
+
+  const maxPathsPerCategory = repoIsHuge ? 4 : repoIsLarge ? 6 : 10;
+  const maxTotalTreePaths = repoIsHuge ? 60 : repoIsLarge ? 90 : 140;
+
   const treeSection = Object.entries(treeByCategory)
-    .map(([cat, paths]) => `[${cat}]\n${paths.slice(0, 10).join("\n")}`)
-    .join("\n\n");
+    .map(([cat, paths]) => `[${cat}]\n${paths.slice(0, maxPathsPerCategory).join("\n")}`)
+    .join("\n\n")
+    .split("\n")
+    .slice(0, maxTotalTreePaths + Object.keys(treeByCategory).length)
+    .join("\n");
 
   const dirSection = dirStructure
     ? `Top-level directories: ${(dirStructure.topLevel || []).join(", ")}\n` +
@@ -135,10 +144,10 @@ function buildAnalysisPrompt(repoData) {
         (b.importance === "high" ? 20 : b.importance === "medium" ? 10 : 0);
       return bScore - aScore;
     })
-    .slice(0, 12);
+    .slice(0, repoIsHuge ? 6 : repoIsLarge ? 8 : 12);
 
   const fileText = selectedFiles
-    .map((f) => `--- FILE: ${f.path} (${f.category || "unknown"}) ---\n${String(f.content || "").slice(0, 1500)}`)
+    .map((f) => `--- FILE: ${f.path} (${f.category || "unknown"}) ---\n${String(f.content || "").slice(0, repoIsHuge ? 800 : repoIsLarge ? 1000 : 1500)}`)
     .join("\n\n");
 
   const metaSection = metadata
