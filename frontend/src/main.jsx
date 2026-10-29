@@ -2,6 +2,7 @@ import React,{useEffect,useMemo,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import {Analytics} from '@vercel/analytics/react';
 import './styles.css';
 
 const NAV=[['overview','01','Overview'],['architecture','02','Architecture'],['explorer','03','Explorer'],['setup','04','Setup'],['ask','05','Ask'],['missions','06','Missions']];
@@ -209,6 +210,7 @@ return <><ParticleField/><Cursor/><header className="top"><a className="brand" h
 {loading&&<div className="analysis-overlay"><div className="analysis-card"><span className="analysis-eyebrow">CODEPILOT / REPOSITORY REVEAL</span><h3>Building a model<br/><em>from the unknown.</em></h3><div className="analysis-steps">{['Inspect repository','Classify structure','Trace relationships','Assemble intelligence'].map((x,i)=><div className={analysisStage>i?'done':''} key={x}><span>{String(i+1).padStart(2,'0')}</span><b>{x}</b><i>{analysisStage>i?'✓':'○'}</i></div>)}</div><div className="analysis-bar"><i style={{width:`${Math.max(8,analysisStage*25)}%`}}/></div></div></div>}
 {palette&&<div className="palette" onClick={()=>setPalette(false)}><div className="palette-card" onClick={e=>e.stopPropagation()}><div className="palette-top"><span>COMMAND / CODEPILOT</span><kbd>ESC</kbd></div><input autoFocus placeholder="Search actions or chapters…" onKeyDown={e=>{if(e.key==='Enter'){commands[0].run();setPalette(false)}}}/><div className="command-list">{commands.map((c,i)=><button className="command-item" data-cursor="RUN" key={i} onClick={()=>{c.run();setPalette(false)}}><span>{c.label}</span><b>{c.meta}</b></button>)}</div></div></div>}
 {mission&&<div className="modal" onClick={()=>setMission(null)}><div className="modal-card" onClick={e=>e.stopPropagation()}><button className="close" onClick={()=>setMission(null)} aria-label="Close mission">×</button><span className="section-marker">MISSION / DETAIL</span><h3>{mission.title}</h3><p>{mission.description}</p><div className="modal-meta"><div><small>FILES</small>{(mission.files||[]).length?(mission.files||[]).map((f,i)=><code key={i}>{typeof f==='string'?f:f.path||f.name}</code>):<code>Repository analysis will attach files</code>}</div><div><small>SKILLS</small>{(mission.skills||[]).map((s,i)=><span key={i}>{s}</span>)}</div></div><div className="mission-actions"><button className="secondary-btn" onClick={()=>{setMission(null);askAbout(`Help me complete the mission: ${mission.title}. What should I inspect first?`)}}>ASK ABOUT IT ↗</button>{data&&<button className="complete-btn" onClick={()=>{const i=missions.indexOf(mission);complete(i);setMission(null)}}>{done.includes(missions.indexOf(mission))?'MISSION COMPLETE':'MARK MISSION COMPLETE'} ↗</button>}</div></div></div>}
+<Analytics />
 </>}
 
 createRoot(document.getElementById('root')).render(<App/>);
